@@ -4,16 +4,17 @@ use anchor_spl::token::{transfer, Mint, Token, TokenAccount, Transfer};
 
 mod utils;
 declare_id!("49wfpTZKZmpAM1jmTBcL5GfobDU3r9F4CMUpZqb2o3ZQ");
-const ADMIN: &str = "oggzGFTgRM61YmhEbgWeivVmQx8bSAdBvsPGqN3ZfxN";
+const ADMIN: &str = "Ddi1GaugnX9yQz1WwK1b12m4o23rK1krZQMcnt2aNW97"; //"oggzGFTgRM61YmhEbgWeivVmQx8bSAdBvsPGqN3ZfxN";
 
 #[program]
 pub mod ogf_lottery {
     use super::*;
 
     pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-        ctx.accounts.global_data_account.release_length = 1;
+        ctx.accounts.global_data_account.release_length = 10;
         ctx.accounts.global_data_account.fee = LAMPORTS_PER_SOL / 1000000;
         ctx.accounts.global_data_account.release_amount = 100000;
+        ctx.accounts.global_data_account.max_time_between_bids = 5;
         Ok(())
     }
     pub fn modify_global_data(
@@ -83,12 +84,15 @@ pub mod ogf_lottery {
             return Err(CustomError::InvalidId.into());
         }
         let time: u64 = Clock::get()?.unix_timestamp as u64;
-        if time < ctx.accounts.pool.bid_deadline {
+        if time < ctx.accounts.prev_pool.bid_deadline {
             return Err(CustomError::BidDeadlineNotPassed.into());
         }
         ctx.accounts.global_data_account.pools += 1;
+        ctx.accounts.pool.id = id;
         ctx.accounts.pool.bid_deadline =
             time + ctx.accounts.global_data_account.max_time_between_bids;
+        let steps = time / ctx.accounts.global_data_account.release_length;
+        ctx.accounts.pool.release_time = steps * ctx.accounts.global_data_account.release_length; // do in past so that we can immediately release
         Ok(())
     }
     pub fn release(ctx: Context<Release>, id: u16) -> Result<()> {
@@ -100,12 +104,12 @@ pub mod ogf_lottery {
             return Err(CustomError::PoolReleaseTimeNotPassed.into());
         }
         let steps = time / ctx.accounts.global_data_account.release_length;
+        let delta = ((time - ctx.accounts.pool.release_time) / ctx.accounts.global_data_account.release_length) + 1;
         ctx.accounts.pool.release_time =
-            (steps + 1) * ctx.accounts.global_data_account.release_length;
-        let to_release =
-            ctx.accounts.global_data_account.release_amount * ctx.accounts.pool.releases.pow(2);
+            (steps + 1) * ctx.accounts.global_data_account.release_length;        
+        let to_release = utils::calculate_release(ctx.accounts.pool.releases + delta) - utils::calculate_release(ctx.accounts.pool.releases);
+        ctx.accounts.pool.releases += delta;
         ctx.accounts.pool.balance += to_release;
-        ctx.accounts.pool.releases += 1;
         Ok(())
     }
     pub fn bid(ctx: Context<Bid>, id: u16, bid_id: u16) -> Result<()> {
@@ -229,7 +233,16 @@ pub struct Initialize<'info> {
         payer = signer,
         space = 8
     )]
+    /// CHECK:
     pub program_authority: AccountInfo<'info>,
+    #[account(
+        init,
+        seeds = [b"pool", 0_u16.to_le_bytes().as_ref()],
+        bump,
+        payer = signer,
+        space = 8 + 2 + 8 + 4 + 8 + 8 + 8
+    )]
+    pub zero_pool: Account<'info, Pool>,
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
 }
@@ -311,6 +324,12 @@ pub struct NewPool<'info> {
     pub pool: Account<'info, Pool>,
     #[account(
         mut,
+        seeds = [b"pool", (id - 1).to_le_bytes().as_ref()],
+        bump,
+    )]
+    pub prev_pool: Account<'info, Pool>,
+    #[account(
+        mut,
         seeds = [b"global"],
         bump,
     )]
@@ -350,7 +369,7 @@ pub struct Bid<'info> {
     pub pool: Account<'info, Pool>,
     #[account(
         init,
-        seeds = [b"bid", bid_id.to_le_bytes().as_ref()],
+        seeds = [b"bid", id.to_le_bytes().as_ref(), bid_id.to_le_bytes().as_ref()],
         bump,
         payer = signer,
         space = 8 + 32
@@ -366,6 +385,7 @@ pub struct Bid<'info> {
         seeds = [b"sol"],
         bump,
     )]
+    /// CHECK: 
     pub program_sol_account: AccountInfo<'info>,
     pub system_program: Program<'info, System>,
 }
@@ -384,7 +404,7 @@ pub struct Claim<'info> {
     pub pool: Account<'info, Pool>,
     #[account(
         mut,
-        seeds = [b"bid", bid_id.to_le_bytes().as_ref()],
+        seeds = [b"bid", id.to_le_bytes().as_ref(), bid_id.to_le_bytes().as_ref()],
         bump,
         close = signer,
     )]
@@ -399,6 +419,7 @@ pub struct Claim<'info> {
         seeds = [b"auth"],
         bump,
     )]
+    /// CHECK: 
     pub program_authority: AccountInfo<'info>,
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
