@@ -3,13 +3,12 @@ use anchor_lang::solana_program::native_token::LAMPORTS_PER_SOL;
 use anchor_spl::token::{transfer, Mint, Token, TokenAccount, Transfer};
 
 mod utils;
-declare_id!("49wfpTZKZmpAM1jmTBcL5GfobDU3r9F4CMUpZqb2o3ZQ");
-const ADMIN: &str = "Ddi1GaugnX9yQz1WwK1b12m4o23rK1krZQMcnt2aNW97"; //"oggzGFTgRM61YmhEbgWeivVmQx8bSAdBvsPGqN3ZfxN";
+declare_id!("FtuevADGnVpXy4dk6EyyEAz8mUamtUTo1hwNGiEW5rL2");
+const ADMIN: &str = "6MeJK3erCnwMtsAHLBhRFaXELpzCBfMrrESEJiBWaHTK"; //"oggzGFTgRM61YmhEbgWeivVmQx8bSAdBvsPGqN3ZfxN";
 
 #[program]
 pub mod ogf_lottery {
     use super::*;
-
     pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
         ctx.accounts.global_data_account.release_length = 10;
         ctx.accounts.global_data_account.fee = LAMPORTS_PER_SOL / 1000000;
@@ -17,11 +16,16 @@ pub mod ogf_lottery {
         ctx.accounts.global_data_account.max_time_between_bids = 5;
         Ok(())
     }
+    pub fn initialize2(ctx: Context<Initialize2>) -> Result<()> {
+        ctx.accounts.global_data_account.mint = ctx.accounts.mint.key();
+        Ok(())
+    }
     pub fn modify_global_data(
         ctx: Context<ModifyGlobalData>,
         fee: u64,
         release_length: u64,
         max_time_between_bids: u64,
+        release_amount: u64,
     ) -> Result<()> {
         if ADMIN.parse::<Pubkey>().unwrap() != ctx.accounts.signer.key() {
             return Err(CustomError::InvalidSigner.into());
@@ -29,6 +33,7 @@ pub mod ogf_lottery {
         ctx.accounts.global_data_account.fee = fee;
         ctx.accounts.global_data_account.release_length = release_length;
         ctx.accounts.global_data_account.max_time_between_bids = max_time_between_bids;
+        ctx.accounts.global_data_account.release_amount = release_amount;
         Ok(())
     }
     pub fn deposit_token(ctx: Context<DepositToken>, amount: u64) -> Result<()> {
@@ -104,10 +109,14 @@ pub mod ogf_lottery {
             return Err(CustomError::PoolReleaseTimeNotPassed.into());
         }
         let steps = time / ctx.accounts.global_data_account.release_length;
-        let delta = ((time - ctx.accounts.pool.release_time) / ctx.accounts.global_data_account.release_length) + 1;
+        let delta = ((time - ctx.accounts.pool.release_time)
+            / ctx.accounts.global_data_account.release_length)
+            + 1;
         ctx.accounts.pool.release_time =
-            (steps + 1) * ctx.accounts.global_data_account.release_length;        
-        let to_release = utils::calculate_release(ctx.accounts.pool.releases + delta) - utils::calculate_release(ctx.accounts.pool.releases);
+            (steps + 1) * ctx.accounts.global_data_account.release_length;
+        let to_release = (utils::calculate_release(ctx.accounts.pool.releases + delta)
+            - utils::calculate_release(ctx.accounts.pool.releases))
+            * ctx.accounts.global_data_account.release_amount;
         ctx.accounts.pool.releases += delta;
         ctx.accounts.pool.balance += to_release;
         Ok(())
@@ -138,6 +147,8 @@ pub mod ogf_lottery {
             time + ctx.accounts.global_data_account.max_time_between_bids;
         ctx.accounts.pool.bids += 1;
         ctx.accounts.bid.bidder = ctx.accounts.signer.key();
+        ctx.accounts.bid.bid_id = bid_id;
+        ctx.accounts.bid.pool = id;
         Ok(())
     }
     pub fn claim(ctx: Context<Claim>, id: u16, bid_id: u16) -> Result<()> {
@@ -194,20 +205,57 @@ pub struct GlobalData {
     pub release_length: u64,
     pub max_time_between_bids: u64,
     pub release_amount: u64,
+    pub mint: Pubkey,
 }
 #[derive(Accounts)]
 pub struct Initialize<'info> {
     #[account(mut)]
     pub signer: Signer<'info>,
-    pub mint: Account<'info, Mint>,
     #[account(
         init,
         seeds = [b"global"],
         bump,
         payer = signer,
-        space = 8 + 2 + 8 + 8 + 8 + 8
+        space = 8 + 2 + 8 + 8 + 8 + 8 + 32,
     )]
     pub global_data_account: Account<'info, GlobalData>,
+    #[account(
+        init,
+        seeds = [b"auth"],
+        bump,
+        payer = signer,
+        space = 8
+    )]
+    /// CHECK:
+    pub program_authority: AccountInfo<'info>,
+    #[account(
+        init,
+        seeds = [b"pool", 0_u16.to_le_bytes().as_ref()],
+        bump,
+        payer = signer,
+        space = 8 + 2 + 8 + 4 + 8 + 8 + 8
+    )]
+    pub zero_pool: Account<'info, Pool>,
+    pub system_program: Program<'info, System>,
+    pub token_program: Program<'info, Token>,
+}
+#[derive(Accounts)]
+pub struct Initialize2<'info> {
+    #[account(mut)]
+    pub signer: Signer<'info>,
+    #[account(
+        seeds = [b"auth"],
+        bump,
+    )]
+    /// CHECK:
+    pub program_authority: AccountInfo<'info>,
+    #[account(
+        mut,
+        seeds = [b"global"],
+        bump,
+    )]
+    pub global_data_account: Account<'info, GlobalData>,
+    pub mint: Account<'info, Mint>,
     #[account(
         init,
         seeds = [b"token"],
@@ -226,23 +274,6 @@ pub struct Initialize<'info> {
     )]
     /// CHECK:
     pub program_sol_account: AccountInfo<'info>,
-    #[account(
-        init,
-        seeds = [b"auth"],
-        bump,
-        payer = signer,
-        space = 8
-    )]
-    /// CHECK:
-    pub program_authority: AccountInfo<'info>,
-    #[account(
-        init,
-        seeds = [b"pool", 0_u16.to_le_bytes().as_ref()],
-        bump,
-        payer = signer,
-        space = 8 + 2 + 8 + 4 + 8 + 8 + 8
-    )]
-    pub zero_pool: Account<'info, Pool>,
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
 }
@@ -353,7 +384,9 @@ pub struct Release<'info> {
     pub global_data_account: Account<'info, GlobalData>,
 }
 #[account]
-pub struct Bidder {
+pub struct BidAccount {
+    pub pool: u16,
+    pub bid_id: u16,
     pub bidder: Pubkey,
 }
 #[derive(Accounts)]
@@ -372,9 +405,9 @@ pub struct Bid<'info> {
         seeds = [b"bid", id.to_le_bytes().as_ref(), bid_id.to_le_bytes().as_ref()],
         bump,
         payer = signer,
-        space = 8 + 32
+        space = 8 + 2 + 2 + 32
     )]
-    pub bid: Account<'info, Bidder>,
+    pub bid: Account<'info, BidAccount>,
     #[account(
         seeds = [b"global"],
         bump,
@@ -385,7 +418,7 @@ pub struct Bid<'info> {
         seeds = [b"sol"],
         bump,
     )]
-    /// CHECK: 
+    /// CHECK:
     pub program_sol_account: AccountInfo<'info>,
     pub system_program: Program<'info, System>,
 }
@@ -408,7 +441,7 @@ pub struct Claim<'info> {
         bump,
         close = signer,
     )]
-    pub bid: Account<'info, Bidder>,
+    pub bid: Account<'info, BidAccount>,
     #[account(
         mut,
         seeds = [b"token"],
@@ -419,8 +452,13 @@ pub struct Claim<'info> {
         seeds = [b"auth"],
         bump,
     )]
-    /// CHECK: 
+    /// CHECK:
     pub program_authority: AccountInfo<'info>,
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
 }
+
+/*
+solana program deploy --skip-fee-check ./program.so --with-compute-unit-price 100 --use-rpc --max-sign-attempts 1000
+solana program deploy --skip-fee-check ./target/deploy/ogc_reserve.so  --with-compute-unit-price 100 --use-rpc --max-sign-attempts 1000 --keypair /home/xeony/.config/solana/id.json
+*/

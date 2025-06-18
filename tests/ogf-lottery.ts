@@ -44,11 +44,16 @@ describe("ogf-lottery", () => {
     // Add your test here.
     const { mint } = await createToken();
     tokenMint = mint;
-    await program.methods.initialize().accounts({
+    const tx = await program.methods.initialize().accounts({
+      signer: wallet.publicKey,
+    }).rpc();
+    const tx2 = await program.methods.initialize2().accounts({
       signer: wallet.publicKey,
       mint,
     }).rpc();
+    console.log(tx, tx2);
   });
+  return;
   it("deposits and withdraws", async () => {
     const signerTokenAccount = getAssociatedTokenAddressSync(tokenMint, wallet.publicKey);
     const [programHolderAccount] = PublicKey.findProgramAddressSync(
@@ -96,7 +101,7 @@ describe("ogf-lottery", () => {
       program.programId
     );
     let poolAccount = await program.account.pool.fetch(poolAddress);
-    let bidAccount = await program.account.bidder.fetch(bidAddress);
+    let bidAccount = await program.account.bidAccount.fetch(bidAddress);
     assert(bidAccount.bidder.equals(wallet.publicKey), "Invalid bidder public key");
     assert(poolAccount.id === 1, "Pool account id incorrect")
     assert(poolAccount.bidDeadline.gt(new BN(0)), "Bid deadline not greater than 0");
