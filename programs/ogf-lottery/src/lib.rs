@@ -3,7 +3,7 @@ use anchor_lang::solana_program::native_token::LAMPORTS_PER_SOL;
 use anchor_spl::token::{transfer, Mint, Token, TokenAccount, Transfer};
 
 mod utils;
-declare_id!("FtuevADGnVpXy4dk6EyyEAz8mUamtUTo1hwNGiEW5rL2");
+declare_id!("DAt2Ygum6uhxZsTChUgzHQ53i7xy3BbuE4512GHVLbeg");
 const ADMIN: &str = "6MeJK3erCnwMtsAHLBhRFaXELpzCBfMrrESEJiBWaHTK"; //"oggzGFTgRM61YmhEbgWeivVmQx8bSAdBvsPGqN3ZfxN";
 
 #[program]
