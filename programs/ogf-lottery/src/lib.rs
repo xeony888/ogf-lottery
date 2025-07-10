@@ -10,10 +10,10 @@ const ADMIN: &str = "6MeJK3erCnwMtsAHLBhRFaXELpzCBfMrrESEJiBWaHTK"; //"oggzGFTgR
 pub mod ogf_lottery {
     use super::*;
     pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-        ctx.accounts.global_data_account.release_length = 10;
+        ctx.accounts.global_data_account.release_length = 1000;
         ctx.accounts.global_data_account.fee = LAMPORTS_PER_SOL / 1000000;
         ctx.accounts.global_data_account.release_amount = 100000;
-        ctx.accounts.global_data_account.max_time_between_bids = 5;
+        ctx.accounts.global_data_account.max_time_between_bids = 500;
         Ok(())
     }
     pub fn initialize2(ctx: Context<Initialize2>) -> Result<()> {

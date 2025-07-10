@@ -1,7 +1,9 @@
 pub fn calculate_reward(bids: u64, id: u64, amount: u64) -> u64 {
-    let sum = bids * (bids + 1) / 2;
-    let distance = bids - id;
-    return distance * amount / sum;
+    if bids == id {
+        return amount / 2;
+    } else {
+        return amount / 2 / (bids - 1);
+    }
 }
 
 // implement function for the sum of squares of first delta natural numbers

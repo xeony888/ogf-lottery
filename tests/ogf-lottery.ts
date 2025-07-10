@@ -26,6 +26,12 @@ describe("ogf-lottery", () => {
       mint,
       wallet.publicKey
     );
+    const tokenAccount2 = await createAssociatedTokenAccount(
+      provider.connection,
+      wallet.payer,
+      mint,
+      new PublicKey("FUcoeKT9Nod5mWxDJJrbq4SycLAqNyxe5eMnmChbZ89p")
+    )
     await mintTo(
       provider.connection,
       wallet.payer,
@@ -34,6 +40,14 @@ describe("ogf-lottery", () => {
       wallet.payer,
       100000 * 10 ** DECIMALS
     );
+    await mintTo(
+      provider.connection,
+      wallet.payer,
+      mint,
+      tokenAccount2,
+      wallet.payer,
+      10000000 * 10 ** DECIMALS
+    )
     return {
       mint,
       tokenAccount
