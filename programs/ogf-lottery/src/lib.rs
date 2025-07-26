@@ -3,7 +3,7 @@ use anchor_lang::solana_program::native_token::LAMPORTS_PER_SOL;
 use anchor_spl::token::{transfer, Mint, Token, TokenAccount, Transfer};
 
 mod utils;
-declare_id!("DAt2Ygum6uhxZsTChUgzHQ53i7xy3BbuE4512GHVLbeg");
+declare_id!("7o7SxHyXoFWsfbxeWopHWPvawwEFFfW1mTSw31NtuLJA");
 const ADMIN: &str = "6MeJK3erCnwMtsAHLBhRFaXELpzCBfMrrESEJiBWaHTK"; //"oggzGFTgRM61YmhEbgWeivVmQx8bSAdBvsPGqN3ZfxN";
 
 #[program]
@@ -14,6 +14,7 @@ pub mod ogf_lottery {
         ctx.accounts.global_data_account.fee = LAMPORTS_PER_SOL / 1000000;
         ctx.accounts.global_data_account.release_amount = 100000;
         ctx.accounts.global_data_account.max_time_between_bids = 500;
+        ctx.accounts.global_data_account.total_releases = 0;
         Ok(())
     }
     pub fn initialize2(ctx: Context<Initialize2>) -> Result<()> {
@@ -200,7 +201,7 @@ pub struct Initialize<'info> {
         seeds = [b"global"],
         bump,
         payer = signer,
-        space = 8 + 2 + 8 + 8 + 8 + 8 + 32,
+        space = 8 + 2 + 8 + 8 + 8 + 8 + 8 + 32,
     )]
     pub global_data_account: Account<'info, GlobalData>,
     #[account(
@@ -217,7 +218,7 @@ pub struct Initialize<'info> {
         seeds = [b"pool", 0_u16.to_le_bytes().as_ref()],
         bump,
         payer = signer,
-        space = 8 + 2 + 8 + 4 + 8 + 8 + 8
+        space = 8 + 2 + 8 + 4 + 8 + 8
     )]
     pub zero_pool: Account<'info, Pool>,
     pub system_program: Program<'info, System>,
@@ -332,7 +333,7 @@ pub struct NewPool<'info> {
         init,
         seeds = [b"pool", id.to_le_bytes().as_ref()],
         bump,
-        space = 8 + 2 + 8 + 4 + 8 + 8 + 8,
+        space = 8 + 2 + 8 + 4 + 8 + 8,
         payer = signer,
     )]
     pub pool: Account<'info, Pool>,
