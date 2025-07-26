@@ -20,13 +20,7 @@ pub mod ogf_lottery {
         ctx.accounts.global_data_account.mint = ctx.accounts.mint.key();
         Ok(())
     }
-    pub fn modify_global_data(
-        ctx: Context<ModifyGlobalData>,
-        fee: u64,
-        release_length: u64,
-        max_time_between_bids: u64,
-        release_amount: u64,
-    ) -> Result<()> {
+    pub fn modify_global_data(ctx: Context<ModifyGlobalData>, fee: u64, release_length: u64, max_time_between_bids: u64, release_amount: u64) -> Result<()> {
         if ADMIN.parse::<Pubkey>().unwrap() != ctx.accounts.signer.key() {
             return Err(CustomError::InvalidSigner.into());
         }
@@ -94,8 +88,7 @@ pub mod ogf_lottery {
         }
         ctx.accounts.global_data_account.pools += 1;
         ctx.accounts.pool.id = id;
-        ctx.accounts.pool.bid_deadline =
-            time + ctx.accounts.global_data_account.max_time_between_bids;
+        ctx.accounts.pool.bid_deadline = time + ctx.accounts.global_data_account.max_time_between_bids;
         let steps = time / ctx.accounts.global_data_account.release_length;
         ctx.accounts.pool.release_time = steps * ctx.accounts.global_data_account.release_length; // do in past so that we can immediately release
         Ok(())
@@ -109,15 +102,10 @@ pub mod ogf_lottery {
             return Err(CustomError::PoolReleaseTimeNotPassed.into());
         }
         let steps = time / ctx.accounts.global_data_account.release_length;
-        let delta = ((time - ctx.accounts.pool.release_time)
-            / ctx.accounts.global_data_account.release_length)
-            + 1;
-        ctx.accounts.pool.release_time =
-            (steps + 1) * ctx.accounts.global_data_account.release_length;
-        let to_release = (utils::calculate_release(ctx.accounts.pool.releases + delta)
-            - utils::calculate_release(ctx.accounts.pool.releases))
-            * ctx.accounts.global_data_account.release_amount;
-        ctx.accounts.pool.releases += delta;
+        let delta = ((time - ctx.accounts.pool.release_time) / ctx.accounts.global_data_account.release_length) + 1;
+        ctx.accounts.pool.release_time = (steps + 1) * ctx.accounts.global_data_account.release_length;
+        let to_release = (utils::calculate_release(ctx.accounts.global_data_account.total_releases + delta) - utils::calculate_release(ctx.accounts.global_data_account.total_releases)) * ctx.accounts.global_data_account.release_amount;
+        ctx.accounts.global_data_account.total_releases += delta;
         ctx.accounts.pool.balance += to_release;
         Ok(())
     }
@@ -143,8 +131,7 @@ pub mod ogf_lottery {
             ),
             price,
         )?;
-        ctx.accounts.pool.bid_deadline =
-            time + ctx.accounts.global_data_account.max_time_between_bids;
+        ctx.accounts.pool.bid_deadline = time + ctx.accounts.global_data_account.max_time_between_bids;
         ctx.accounts.pool.bids += 1;
         ctx.accounts.bid.bidder = ctx.accounts.signer.key();
         ctx.accounts.bid.bid_id = bid_id;
@@ -159,11 +146,7 @@ pub mod ogf_lottery {
         if ctx.accounts.bid.bidder != ctx.accounts.signer.key() {
             return Err(CustomError::WrongBidAccountOwner.into());
         }
-        let reward = utils::calculate_reward(
-            ctx.accounts.pool.bids as u64,
-            bid_id as u64,
-            ctx.accounts.pool.balance,
-        );
+        let reward = utils::calculate_reward(ctx.accounts.pool.bids as u64, bid_id as u64, ctx.accounts.pool.balance);
         transfer(
             CpiContext::new_with_signer(
                 ctx.accounts.token_program.to_account_info(),
@@ -206,6 +189,7 @@ pub struct GlobalData {
     pub max_time_between_bids: u64,
     pub release_amount: u64,
     pub mint: Pubkey,
+    pub total_releases: u64,
 }
 #[derive(Accounts)]
 pub struct Initialize<'info> {
@@ -337,7 +321,6 @@ pub struct Pool {
     pub bid_deadline: u64,
     pub bids: u32,
     pub release_time: u64,
-    pub releases: u64,
     pub balance: u64,
 }
 #[derive(Accounts)]
