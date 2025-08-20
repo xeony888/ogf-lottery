@@ -89,7 +89,8 @@ pub mod ogf_lottery {
         }
         ctx.accounts.global_data_account.pools += 1;
         ctx.accounts.pool.id = id;
-        ctx.accounts.pool.bid_deadline = time + ctx.accounts.global_data_account.max_time_between_bids;
+        let count = time / ctx.accounts.global_data_account.max_time_between_bids;
+        ctx.accounts.pool.bid_deadline = (count + 1) * ctx.accounts.global_data_account.max_time_between_bids;
         let steps = time / ctx.accounts.global_data_account.release_length;
         ctx.accounts.pool.release_time = steps * ctx.accounts.global_data_account.release_length; // do in past so that we can immediately release
         Ok(())
