@@ -6,7 +6,6 @@ pub fn calculate_reward(bids: u64, id: u64, amount: u64) -> u64 {
     }
 }
 
-// implement function for the sum of squares of first delta natural numbers
 pub fn calculate_release(delta: u64) -> u64 {
     let adj = delta as u128;
     let sum128 = adj.checked_mul(adj + 1).expect("overflow in multiplication") / 2;

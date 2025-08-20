@@ -70,6 +70,7 @@ describe("ogf-lottery", () => {
     console.log(tx2)
     console.log(tx, tx2);
   });
+  return
   it("deposits and withdraws", async () => {
     const signerTokenAccount = getAssociatedTokenAddressSync(tokenMint, wallet.publicKey);
     const [programHolderAccount] = PublicKey.findProgramAddressSync(

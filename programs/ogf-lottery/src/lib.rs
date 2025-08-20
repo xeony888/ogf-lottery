@@ -3,17 +3,17 @@ use anchor_lang::solana_program::native_token::LAMPORTS_PER_SOL;
 use anchor_spl::token::{transfer, Mint, Token, TokenAccount, Transfer};
 
 mod utils;
-declare_id!("7o7SxHyXoFWsfbxeWopHWPvawwEFFfW1mTSw31NtuLJA");
+declare_id!("FHpLFdeSmCerfKGoVvs6cRgRh7vuGipbUBfu7MPA2G62");
 const ADMIN: &str = "6MeJK3erCnwMtsAHLBhRFaXELpzCBfMrrESEJiBWaHTK"; //"oggzGFTgRM61YmhEbgWeivVmQx8bSAdBvsPGqN3ZfxN";
 
 #[program]
 pub mod ogf_lottery {
     use super::*;
     pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-        ctx.accounts.global_data_account.release_length = 1000;
+        ctx.accounts.global_data_account.release_length = 500;
         ctx.accounts.global_data_account.fee = LAMPORTS_PER_SOL / 1000000;
         ctx.accounts.global_data_account.release_amount = 100000;
-        ctx.accounts.global_data_account.max_time_between_bids = 500;
+        ctx.accounts.global_data_account.max_time_between_bids = 1000;
         ctx.accounts.global_data_account.total_releases = 0;
         Ok(())
     }
@@ -106,6 +106,7 @@ pub mod ogf_lottery {
         let delta = ((time - ctx.accounts.pool.release_time) / ctx.accounts.global_data_account.release_length) + 1;
         ctx.accounts.pool.release_time = (steps + 1) * ctx.accounts.global_data_account.release_length;
         let to_release = (utils::calculate_release(ctx.accounts.global_data_account.total_releases + delta) - utils::calculate_release(ctx.accounts.global_data_account.total_releases)) * ctx.accounts.global_data_account.release_amount;
+        msg!("Releasing {}", to_release);
         ctx.accounts.global_data_account.total_releases += delta;
         ctx.accounts.pool.balance += to_release;
         Ok(())
@@ -132,7 +133,9 @@ pub mod ogf_lottery {
             ),
             price,
         )?;
-        ctx.accounts.pool.bid_deadline = time + ctx.accounts.global_data_account.max_time_between_bids;
+        let count = time / ctx.accounts.global_data_account.max_time_between_bids;
+        // ctx.accounts.pool.bid_deadline = time + ctx.accounts.global_data_account.max_time_between_bids;
+        ctx.accounts.pool.bid_deadline = (count + 2) * ctx.accounts.global_data_account.max_time_between_bids;
         ctx.accounts.pool.bids += 1;
         ctx.accounts.bid.bidder = ctx.accounts.signer.key();
         ctx.accounts.bid.bid_id = bid_id;
@@ -362,6 +365,7 @@ pub struct Release<'info> {
     )]
     pub pool: Account<'info, Pool>,
     #[account(
+        mut,
         seeds = [b"global"],
         bump,
     )]
