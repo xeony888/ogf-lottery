@@ -5,7 +5,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-ogf_lottery = "9oDHyf7QQvYEf7eZr9BPiAcuitLV6ZTQVskVqajNwbGA"
+ogf_lottery = "BtZ6LuVh4nSDQvTVhb9JMm8aaq1nbj9YBJxN2CXK8MzB"
 
 [registry]
 url = "https://api.apr.dev"
