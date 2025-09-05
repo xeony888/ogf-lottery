@@ -3,9 +3,9 @@ use anchor_lang::solana_program::native_token::LAMPORTS_PER_SOL;
 use anchor_spl::token::{transfer, Mint, Token, TokenAccount, Transfer};
 
 mod utils;
-declare_id!("BtZ6LuVh4nSDQvTVhb9JMm8aaq1nbj9YBJxN2CXK8MzB");
-const ADMIN: &str = "6MeJK3erCnwMtsAHLBhRFaXELpzCBfMrrESEJiBWaHTK"; //"oggzGFTgRM61YmhEbgWeivVmQx8bSAdBvsPGqN3ZfxN";
-
+declare_id!("6T3ZLEyUat5Xa1EKnvHs1ovyhsTpx3upjWTKJpeV5KPX");
+const ADMIN: &str = "mvS6F1m55sKTfgSWtiNH3FBnjM6kBoprBBDhu9VNCcD"; // "6MeJK3erCnwMtsAHLBhRFaXELpzCBfMrrESEJiBWaHTK"; // "mvS6F1m55sKTfgSWtiNH3FBnjM6kBoprBBDhu9VNCcD";
+const TEN_DAYS_SECONDS: u64 = 864000;
 #[program]
 pub mod ogf_lottery {
     use super::*;
@@ -15,13 +15,14 @@ pub mod ogf_lottery {
         ctx.accounts.global_data_account.release_amount = 100000;
         ctx.accounts.global_data_account.max_time_between_bids = 1000;
         ctx.accounts.global_data_account.total_releases = 0;
+        ctx.accounts.global_data_account.claim_expiry_time = TEN_DAYS_SECONDS;
         Ok(())
     }
     pub fn initialize2(ctx: Context<Initialize2>) -> Result<()> {
         ctx.accounts.global_data_account.mint = ctx.accounts.mint.key();
         Ok(())
     }
-    pub fn modify_global_data(ctx: Context<ModifyGlobalData>, fee: u64, release_length: u64, max_time_between_bids: u64, release_amount: u64) -> Result<()> {
+    pub fn modify_global_data(ctx: Context<ModifyGlobalData>, fee: u64, release_length: u64, max_time_between_bids: u64, release_amount: u64, claim_expiry_time: u64) -> Result<()> {
         if ADMIN.parse::<Pubkey>().unwrap() != ctx.accounts.signer.key() {
             return Err(CustomError::InvalidSigner.into());
         }
@@ -29,6 +30,7 @@ pub mod ogf_lottery {
         ctx.accounts.global_data_account.release_length = release_length;
         ctx.accounts.global_data_account.max_time_between_bids = max_time_between_bids;
         ctx.accounts.global_data_account.release_amount = release_amount;
+        ctx.accounts.global_data_account.claim_expiry_time = claim_expiry_time;
         Ok(())
     }
     pub fn deposit_token(ctx: Context<DepositToken>, amount: u64) -> Result<()> {
@@ -141,6 +143,7 @@ pub mod ogf_lottery {
         ctx.accounts.bid.bidder = ctx.accounts.signer.key();
         ctx.accounts.bid.bid_id = bid_id;
         ctx.accounts.bid.pool = id;
+        ctx.accounts.bid.time = time;
         Ok(())
     }
     pub fn claim(ctx: Context<Claim>, id: u16, bid_id: u16) -> Result<()> {
@@ -151,19 +154,22 @@ pub mod ogf_lottery {
         if ctx.accounts.bid.bidder != ctx.accounts.signer.key() {
             return Err(CustomError::WrongBidAccountOwner.into());
         }
-        let reward = utils::calculate_reward(ctx.accounts.pool.bids as u64, bid_id as u64, ctx.accounts.pool.balance);
-        transfer(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                Transfer {
-                    from: ctx.accounts.program_token_account.to_account_info(),
-                    to: ctx.accounts.signer_token_account.to_account_info(),
-                    authority: ctx.accounts.program_authority.to_account_info(),
-                },
-                &[&[b"auth", &[ctx.bumps.program_authority]]],
-            ),
-            reward,
-        )?;
+        if ctx.accounts.bid.time + ctx.accounts.global_data_account.claim_expiry_time > time {
+            let reward = utils::calculate_reward(ctx.accounts.pool.bids as u64, bid_id as u64, ctx.accounts.pool.balance);
+            transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.to_account_info(),
+                    Transfer {
+                        from: ctx.accounts.program_token_account.to_account_info(),
+                        to: ctx.accounts.signer_token_account.to_account_info(),
+                        authority: ctx.accounts.program_authority.to_account_info(),
+                    },
+                    &[&[b"auth", &[ctx.bumps.program_authority]]],
+                ),
+                reward,
+            )?;
+            emit!(ClaimEvent { user: *ctx.accounts.signer.key, amount: reward })
+        }
         Ok(())
     }
 }
@@ -195,6 +201,7 @@ pub struct GlobalData {
     pub release_amount: u64,
     pub mint: Pubkey,
     pub total_releases: u64,
+    pub claim_expiry_time: u64,
 }
 #[derive(Accounts)]
 pub struct Initialize<'info> {
@@ -205,7 +212,7 @@ pub struct Initialize<'info> {
         seeds = [b"global"],
         bump,
         payer = signer,
-        space = 8 + 2 + 8 + 8 + 8 + 8 + 8 + 32,
+        space = 8 + 2 + 8 + 8 + 8 + 8 + 8 + 8 + 32,
     )]
     pub global_data_account: Account<'info, GlobalData>,
     #[account(
@@ -377,6 +384,7 @@ pub struct BidAccount {
     pub pool: u16,
     pub bid_id: u16,
     pub bidder: Pubkey,
+    pub time: u64,
 }
 #[derive(Accounts)]
 #[instruction(id: u16, bid_id: u16)]
@@ -394,7 +402,7 @@ pub struct Bid<'info> {
         seeds = [b"bid", id.to_le_bytes().as_ref(), bid_id.to_le_bytes().as_ref()],
         bump,
         payer = signer,
-        space = 8 + 2 + 2 + 32
+        space = 8 + 2 + 2 + 8 + 32
     )]
     pub bid: Account<'info, BidAccount>,
     #[account(
@@ -443,11 +451,23 @@ pub struct Claim<'info> {
     )]
     /// CHECK:
     pub program_authority: AccountInfo<'info>,
+    #[account(
+        seeds = [b"global"],
+        bump,
+    )]
+    pub global_data_account: Account<'info, GlobalData>,
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
+}
+#[event]
+pub struct ClaimEvent {
+    pub user: Pubkey,
+    pub amount: u64,
 }
 
 /*
 solana program deploy --skip-fee-check ./program.so --with-compute-unit-price 100 --use-rpc --max-sign-attempts 1000
-solana program deploy --skip-fee-check ./target/deploy/ogc_reserve.so  --with-compute-unit-price 100 --use-rpc --max-sign-attempts 1000 --keypair /home/xeony/.config/solana/id.json
+solana program deploy --skip-fee-check ./target/deploy/ogf_lottery.so  --with-compute-unit-price 100 --use-rpc --max-sign-attempts 1000 --keypair ~/.config/solana/id.json
 */
+
+// RPC URL: https://devnet.helius-rpc.com/?api-key=e7b6dcae-bb88-4740-bc6b-908683b4725d
