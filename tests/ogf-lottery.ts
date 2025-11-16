@@ -126,7 +126,7 @@ describe("ogf-lottery", () => {
     assert(poolAccount.id === 1, "Pool account id incorrect")
     assert(poolAccount.bidDeadline.gt(new BN(0)), "Bid deadline not greater than 0");
     assert(poolAccount.bids === 1, "Bids not equal to 1")
-    assert.deepStrictEqual(bidAccount.bidIds, [0], "Bid Ids wrong");
+    assert.deepStrictEqual(bidAccount.bidIds, [1], "Bid Ids wrong");
     assert(poolAccount.balance.gt(new BN(0)), "Released balance not greater than 0");
     await program.methods.bid(1, 0).accounts({
       signer: wallet.publicKey
@@ -180,7 +180,7 @@ describe("ogf-lottery", () => {
       program.programId
     );
     const bidAccount2 = await program.account.bidAccount.fetch(bidAddress2);
-    assert.deepStrictEqual(bidAccount2.bidIds, [0, 1, 2, 3]);
+    assert.deepStrictEqual(bidAccount2.bidIds, [1, 2, 3, 4]);
     assert(pool1Data.id === 2, "Pool id not equal to 2");
     const signerTokenAccountAddress = getAssociatedTokenAddressSync(tokenMint, wallet.publicKey);
     const ix = createAssociatedTokenAccountIdempotentInstruction(
@@ -196,7 +196,18 @@ describe("ogf-lottery", () => {
     const transaction2 = new Transaction().add(ix, tx);
     await provider.sendAndConfirm(transaction2);
     const signerTokenAccount = await getAccount(provider.connection, signerTokenAccountAddress);
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise(resolve => setTimeout(resolve, 10000));
+    await program.methods.newPool(3).accounts({
+      signer: wallet.publicKey,
+      prevPool: poolAddress,
+    }).transaction();
+    await program.methods.release(3).accounts({
+      signer: wallet.publicKey
+    }).transaction();
+    await program.methods.claim(2, 0).accounts({
+      signer: wallet.publicKey,
+      signerTokenAccount: signerTokenAccountAddress
+    }).rpc()
     assert(signerTokenAccount.amount > BigInt(0), "Signer token account did not receive any token");
   });
 });

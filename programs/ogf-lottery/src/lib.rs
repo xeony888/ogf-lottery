@@ -6,7 +6,7 @@ use anchor_spl::{
 };
 
 mod utils;
-declare_id!("6guE7uxYBeUq3ZPGW7gSCNGeASNip7E2jLxmGZ8U8WVU");
+declare_id!("2CHDuw476jJk4oTtrKuA9PSvLsxSHsEQ3sLm3zJvwJsy");
 const ADMIN: &str = "6MeJK3erCnwMtsAHLBhRFaXELpzCBfMrrESEJiBWaHTK"; // "oggzGFTgRM61YmhEbgWeivVmQx8bSAdBvsPGqN3ZfxN"; // "6MeJK3erCnwMtsAHLBhRFaXELpzCBfMrrESEJiBWaHTK";
 const TEN_DAYS_SECONDS: u64 = 864000;
 #[program]
