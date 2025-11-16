@@ -5,13 +5,13 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-ogf_lottery = "6T3ZLEyUat5Xa1EKnvHs1ovyhsTpx3upjWTKJpeV5KPX"
+ogf_lottery = "6guE7uxYBeUq3ZPGW7gSCNGeASNip7E2jLxmGZ8U8WVU"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "Mainnet"
+cluster = "Devnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]

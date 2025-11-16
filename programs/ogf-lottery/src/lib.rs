@@ -1,19 +1,24 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::native_token::LAMPORTS_PER_SOL;
-use anchor_spl::token::{transfer, Mint, Token, TokenAccount, Transfer};
+use anchor_spl::{
+    associated_token::spl_associated_token_account::tools::account,
+    token::{transfer, Mint, Token, TokenAccount, Transfer},
+};
 
 mod utils;
-declare_id!("6T3ZLEyUat5Xa1EKnvHs1ovyhsTpx3upjWTKJpeV5KPX");
-const ADMIN: &str = "mvS6F1m55sKTfgSWtiNH3FBnjM6kBoprBBDhu9VNCcD"; // "6MeJK3erCnwMtsAHLBhRFaXELpzCBfMrrESEJiBWaHTK"; // "mvS6F1m55sKTfgSWtiNH3FBnjM6kBoprBBDhu9VNCcD";
+declare_id!("6guE7uxYBeUq3ZPGW7gSCNGeASNip7E2jLxmGZ8U8WVU");
+const ADMIN: &str = "6MeJK3erCnwMtsAHLBhRFaXELpzCBfMrrESEJiBWaHTK"; // "oggzGFTgRM61YmhEbgWeivVmQx8bSAdBvsPGqN3ZfxN"; // "6MeJK3erCnwMtsAHLBhRFaXELpzCBfMrrESEJiBWaHTK";
 const TEN_DAYS_SECONDS: u64 = 864000;
 #[program]
 pub mod ogf_lottery {
+    use anchor_lang::system_program;
+
     use super::*;
     pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-        ctx.accounts.global_data_account.release_length = 500;
+        ctx.accounts.global_data_account.release_length = 2; //500;
         ctx.accounts.global_data_account.fee = LAMPORTS_PER_SOL / 1000000;
         ctx.accounts.global_data_account.release_amount = 100000;
-        ctx.accounts.global_data_account.max_time_between_bids = 1000;
+        ctx.accounts.global_data_account.max_time_between_bids = 5; // 1000;
         ctx.accounts.global_data_account.total_releases = 0;
         ctx.accounts.global_data_account.claim_expiry_time = TEN_DAYS_SECONDS;
         Ok(())
@@ -34,9 +39,9 @@ pub mod ogf_lottery {
         Ok(())
     }
     pub fn deposit_token(ctx: Context<DepositToken>, amount: u64) -> Result<()> {
-        if ADMIN.parse::<Pubkey>().unwrap() != ctx.accounts.signer.key() {
-            return Err(CustomError::InvalidSigner.into());
-        }
+        // if ADMIN.parse::<Pubkey>().unwrap() != ctx.accounts.signer.key() {
+        //     return Err(CustomError::InvalidSigner.into());
+        // } // anyone can deposit tokens
         transfer(
             CpiContext::new(
                 ctx.accounts.token_program.to_account_info(),
@@ -114,39 +119,82 @@ pub mod ogf_lottery {
         ctx.accounts.pool.balance += to_release;
         Ok(())
     }
-    pub fn bid(ctx: Context<Bid>, id: u16, bid_id: u16) -> Result<()> {
+    pub fn create_bid(ctx: Context<CreateBid>, id: u16, account_id: u16) -> Result<()> {
+        let bid = &mut ctx.accounts.bid;
+        bid.pool = id;
+        bid.account_id = account_id;
+        bid.bidder = ctx.accounts.signer.key();
+        bid.bid_ids = vec![];
+        Ok(())
+    }
+    pub fn bid(ctx: Context<Bid>, id: u16, account_id: u16) -> Result<()> {
+        // Validate against your existing pool/global rules
         if ctx.accounts.global_data_account.pools != id {
             return Err(CustomError::InvalidId.into());
         }
-        if ctx.accounts.pool.bids != bid_id as u32 {
-            return Err(CustomError::InvalidBidId.into());
-        }
-        let time = Clock::get()?.unix_timestamp as u64;
-        if time > ctx.accounts.pool.bid_deadline {
+        let now = Clock::get()?.unix_timestamp as u64;
+        if now > ctx.accounts.pool.bid_deadline {
             return Err(CustomError::BidDeadlinePassed.into());
         }
-        let price = ctx.accounts.global_data_account.fee * ctx.accounts.pool.bids.pow(2) as u64;
-        anchor_lang::system_program::transfer(
+        // Price and transfer
+        let price = ctx.accounts.global_data_account.fee * (ctx.accounts.pool.bids.pow(2) as u64);
+        system_program::transfer(
             CpiContext::new(
                 ctx.accounts.system_program.to_account_info(),
-                anchor_lang::system_program::Transfer {
+                system_program::Transfer {
                     from: ctx.accounts.signer.to_account_info(),
                     to: ctx.accounts.program_sol_account.to_account_info(),
                 },
             ),
             price,
         )?;
-        let count = time / ctx.accounts.global_data_account.max_time_between_bids;
-        // ctx.accounts.pool.bid_deadline = time + ctx.accounts.global_data_account.max_time_between_bids;
-        ctx.accounts.pool.bid_deadline = (count + 2) * ctx.accounts.global_data_account.max_time_between_bids;
+
+        // One new u16 → need +2 bytes; ensure rent, then realloc
+        {
+            let bid_ai = &mut ctx.accounts.bid.to_account_info();
+            let current = bid_ai.data_len();
+            let needed = current + 2;
+
+            if needed > current {
+                let rent = Rent::get()?.minimum_balance(needed);
+                if bid_ai.lamports() < rent {
+                    let top_up = rent - bid_ai.lamports();
+                    system_program::transfer(
+                        CpiContext::new(
+                            ctx.accounts.system_program.to_account_info(),
+                            system_program::Transfer {
+                                from: ctx.accounts.signer.to_account_info(),
+                                to: bid_ai.clone(),
+                            },
+                        ),
+                        top_up,
+                    )?;
+                }
+                // zero = false because we immediately write valid data
+                bid_ai.realloc(needed, /*zero*/ false)?;
+            }
+        }
+
+        // Initialize fixed fields on first use (all zeros when created)
+        let bid_acc = &mut ctx.accounts.bid;
+        if bid_acc.bid_ids.len() == 0 {
+            bid_acc.pool = id;
+            bid_acc.account_id = account_id;
+            bid_acc.bidder = ctx.accounts.signer.key();
+        }
+
+        // Append new bid id
+        let next_bid_id = (ctx.accounts.pool.bids + 1) as u16;
+        bid_acc.bid_ids.push(next_bid_id);
+
+        // Update pool timing/counter
+        let bucket = now / ctx.accounts.global_data_account.max_time_between_bids;
+        ctx.accounts.pool.bid_deadline = (bucket + 2) * ctx.accounts.global_data_account.max_time_between_bids;
         ctx.accounts.pool.bids += 1;
-        ctx.accounts.bid.bidder = ctx.accounts.signer.key();
-        ctx.accounts.bid.bid_id = bid_id;
-        ctx.accounts.bid.pool = id;
-        ctx.accounts.bid.time = time;
+
         Ok(())
     }
-    pub fn claim(ctx: Context<Claim>, id: u16, bid_id: u16) -> Result<()> {
+    pub fn claim(ctx: Context<Claim>, id: u16, account_id: u16) -> Result<()> {
         let time = Clock::get()?.unix_timestamp as u64;
         if time < ctx.accounts.pool.bid_deadline {
             return Err(CustomError::BidDeadlineNotPassed.into());
@@ -154,8 +202,11 @@ pub mod ogf_lottery {
         if ctx.accounts.bid.bidder != ctx.accounts.signer.key() {
             return Err(CustomError::WrongBidAccountOwner.into());
         }
-        if ctx.accounts.bid.time + ctx.accounts.global_data_account.claim_expiry_time > time {
-            let reward = utils::calculate_reward(ctx.accounts.pool.bids as u64, bid_id as u64, ctx.accounts.pool.balance);
+        if ctx.accounts.pool.bid_deadline + ctx.accounts.global_data_account.claim_expiry_time > time && ctx.accounts.bid.bid_ids.len() > 0 {
+            let mut reward: u64 = 0;
+            for bid in &ctx.accounts.bid.bid_ids {
+                reward += utils::calculate_reward(ctx.accounts.pool.bids as u64, *bid as u64, ctx.accounts.pool.balance);
+            }
             transfer(
                 CpiContext::new_with_signer(
                     ctx.accounts.token_program.to_account_info(),
@@ -382,12 +433,36 @@ pub struct Release<'info> {
 #[account]
 pub struct BidAccount {
     pub pool: u16,
-    pub bid_id: u16,
+    pub account_id: u16,
     pub bidder: Pubkey,
-    pub time: u64,
+    pub bid_ids: Vec<u16>,
+}
+impl BidAccount {
+    pub const BASE: usize = 8 + 2 + 2 + 4 + 32;
+    #[inline]
+    pub fn space_for(len: usize) -> usize {
+        Self::BASE + 2 * len
+    }
 }
 #[derive(Accounts)]
-#[instruction(id: u16, bid_id: u16)]
+#[instruction(id: u16, account_id: u16)]
+pub struct CreateBid<'info> {
+    #[account(mut)]
+    pub signer: Signer<'info>,
+
+    #[account(
+        init,
+        payer = signer,
+        space = BidAccount::BASE,           // 48 bytes (empty Vec)
+        seeds = [b"bid", id.to_le_bytes().as_ref(), account_id.to_le_bytes().as_ref(), signer.key().as_ref()],
+        bump
+    )]
+    pub bid: Account<'info, BidAccount>,
+
+    pub system_program: Program<'info, System>,
+}
+#[derive(Accounts)]
+#[instruction(id: u16, account_id: u16)]
 pub struct Bid<'info> {
     #[account(mut)]
     pub signer: Signer<'info>,
@@ -398,11 +473,9 @@ pub struct Bid<'info> {
     )]
     pub pool: Account<'info, Pool>,
     #[account(
-        init,
-        seeds = [b"bid", id.to_le_bytes().as_ref(), bid_id.to_le_bytes().as_ref()],
-        bump,
-        payer = signer,
-        space = 8 + 2 + 2 + 8 + 32
+        mut,
+        seeds = [b"bid", id.to_le_bytes().as_ref(), account_id.to_le_bytes().as_ref(), signer.key().as_ref()],
+        bump
     )]
     pub bid: Account<'info, BidAccount>,
     #[account(
@@ -421,7 +494,7 @@ pub struct Bid<'info> {
 }
 
 #[derive(Accounts)]
-#[instruction(id: u16, bid_id: u16)]
+#[instruction(id: u16, account_id: u16)]
 pub struct Claim<'info> {
     #[account(mut)]
     pub signer: Signer<'info>,
@@ -434,7 +507,7 @@ pub struct Claim<'info> {
     pub pool: Account<'info, Pool>,
     #[account(
         mut,
-        seeds = [b"bid", id.to_le_bytes().as_ref(), bid_id.to_le_bytes().as_ref()],
+        seeds = [b"bid", id.to_le_bytes().as_ref(), account_id.to_le_bytes().as_ref(), signer.key().as_ref()],
         bump,
         close = signer,
     )]
