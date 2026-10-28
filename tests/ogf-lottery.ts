@@ -2,24 +2,31 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { createAssociatedTokenAccount, createAssociatedTokenAccountIdempotent, createAssociatedTokenAccountIdempotentInstruction, createMint, getAccount, getAssociatedTokenAddressSync, mintTo } from "@solana/spl-token";
 import { OgfLottery } from "../target/types/ogf_lottery";
-import { PublicKey, Keypair, Transaction } from "@solana/web3.js";
+import { PublicKey, Keypair, Transaction, SystemProgram } from "@solana/web3.js";
 import { BN } from "bn.js";
 import { assert } from "chai";
 const DECIMALS = 6;
+// Real OGF mint; Anchor.toml preloads it into the test validator from tests/fixtures/ogf_mint.json
+// with the admin wallet as mint authority.
+const OGF_MINT = new PublicKey("EQyRaajDZLEEdSrU8Hws29LWjDJczGKB1CV6jrWcZJn9");
 describe("ogf-lottery", () => {
   // Configure the client to use the local cluster.
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
   const wallet = provider.wallet as anchor.Wallet;
   const program = anchor.workspace.OgfLottery as Program<OgfLottery>;
+  const expectProgramError = async (promise: Promise<unknown>, code: string) => {
+    try {
+      await promise;
+    } catch (e) {
+      assert.instanceOf(e, anchor.AnchorError, `expected AnchorError ${code}, got ${e}`);
+      assert.equal((e as anchor.AnchorError).error.errorCode.code, code);
+      return;
+    }
+    assert.fail(`expected ${code} but transaction succeeded`);
+  };
   const createToken = async () => {
-    const mint = await createMint(
-      provider.connection,
-      wallet.payer,
-      wallet.publicKey,
-      wallet.publicKey,
-      DECIMALS
-    );
+    const mint = OGF_MINT;
     const tokenAccount = await createAssociatedTokenAccount(
       provider.connection,
       wallet.payer,
@@ -54,21 +61,56 @@ describe("ogf-lottery", () => {
     }
   }
   let tokenMint: PublicKey;
-  it("Is initialized!", async () => {
-    // Add your test here.
+  it("rejects initialization by a non-admin signer", async () => {
+    const attacker = Keypair.generate();
+    await provider.sendAndConfirm(new Transaction().add(SystemProgram.transfer({
+      fromPubkey: wallet.publicKey,
+      toPubkey: attacker.publicKey,
+      lamports: 1_000_000_000,
+    })));
+    const [globalAddress] = PublicKey.findProgramAddressSync([Buffer.from("global")], program.programId);
+    await expectProgramError(
+      program.methods.initialize().accounts({ signer: attacker.publicKey }).signers([attacker]).rpc(),
+      "InvalidSigner"
+    );
+    assert.isNull(await provider.connection.getAccountInfo(globalAddress), "non-admin bound global state");
+  });
+  it("rejects initialize2 by a non-admin signer and for a wrong mint, then accepts admin with the OGF mint", async () => {
     const { mint } = await createToken();
     tokenMint = mint;
-
-    const tx = await program.methods.initialize().accounts({
+    await program.methods.initialize().accounts({
       signer: wallet.publicKey,
     }).rpc();
-    console.log(tx)
-    const tx2 = await program.methods.initialize2().accounts({
+    const [globalAddress] = PublicKey.findProgramAddressSync([Buffer.from("global")], program.programId);
+    const [programTokenAddress] = PublicKey.findProgramAddressSync([Buffer.from("token")], program.programId);
+
+    const attacker = Keypair.generate();
+    await provider.sendAndConfirm(new Transaction().add(SystemProgram.transfer({
+      fromPubkey: wallet.publicKey,
+      toPubkey: attacker.publicKey,
+      lamports: 1_000_000_000,
+    })));
+    await expectProgramError(
+      program.methods.initialize2().accounts({ signer: attacker.publicKey, mint }).signers([attacker]).rpc(),
+      "InvalidSigner"
+    );
+    const wrongMint = await createMint(provider.connection, wallet.payer, wallet.publicKey, null, DECIMALS);
+    await expectProgramError(
+      program.methods.initialize2().accounts({ signer: wallet.publicKey, mint: wrongMint }).rpc(),
+      "WrongMint"
+    );
+    let globalData = await program.account.globalData.fetch(globalAddress);
+    assert(globalData.mint.equals(PublicKey.default), "mint bound despite rejected initialize2");
+    assert.isNull(await provider.connection.getAccountInfo(programTokenAddress), "program token account created despite rejection");
+
+    await program.methods.initialize2().accounts({
       signer: wallet.publicKey,
       mint,
     }).rpc();
-    console.log(tx2)
-    console.log(tx, tx2);
+    globalData = await program.account.globalData.fetch(globalAddress);
+    assert(globalData.mint.equals(OGF_MINT), "global mint is not the OGF mint");
+    const programTokenAccount = await getAccount(provider.connection, programTokenAddress);
+    assert(programTokenAccount.mint.equals(OGF_MINT), "program token account not on the OGF mint");
   });
   it("deposits and withdraws", async () => {
     const signerTokenAccount = getAssociatedTokenAddressSync(tokenMint, wallet.publicKey);

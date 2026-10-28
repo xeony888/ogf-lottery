@@ -7,7 +7,8 @@ use anchor_spl::{
 
 mod utils;
 declare_id!("2CHDuw476jJk4oTtrKuA9PSvLsxSHsEQ3sLm3zJvwJsy");
-const ADMIN: &str = "6MeJK3erCnwMtsAHLBhRFaXELpzCBfMrrESEJiBWaHTK"; // "oggzGFTgRM61YmhEbgWeivVmQx8bSAdBvsPGqN3ZfxN"; // "6MeJK3erCnwMtsAHLBhRFaXELpzCBfMrrESEJiBWaHTK";
+const ADMIN: &str = "6MeJK3erCnwMtsAHLBhRFaXELpzCBfMrrESEJiBWaHTK";
+const OGF_MINT: &str = "EQyRaajDZLEEdSrU8Hws29LWjDJczGKB1CV6jrWcZJn9";
 const TEN_DAYS_SECONDS: u64 = 864000;
 #[program]
 pub mod ogf_lottery {
@@ -15,6 +16,9 @@ pub mod ogf_lottery {
 
     use super::*;
     pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
+        if ADMIN.parse::<Pubkey>().unwrap() != ctx.accounts.signer.key() {
+            return Err(CustomError::InvalidSigner.into());
+        }
         ctx.accounts.global_data_account.release_length = 2; //500;
         ctx.accounts.global_data_account.fee = LAMPORTS_PER_SOL / 1000000;
         ctx.accounts.global_data_account.release_amount = 100000;
@@ -24,6 +28,12 @@ pub mod ogf_lottery {
         Ok(())
     }
     pub fn initialize2(ctx: Context<Initialize2>) -> Result<()> {
+        if ADMIN.parse::<Pubkey>().unwrap() != ctx.accounts.signer.key() {
+            return Err(CustomError::InvalidSigner.into());
+        }
+        if OGF_MINT.parse::<Pubkey>().unwrap() != ctx.accounts.mint.key() {
+            return Err(CustomError::WrongMint.into());
+        }
         ctx.accounts.global_data_account.mint = ctx.accounts.mint.key();
         Ok(())
     }
@@ -242,6 +252,8 @@ pub enum CustomError {
     InvalidSigner,
     #[msg("No fees to withdraw")]
     NoFeesToWithdraw,
+    #[msg("Wrong mint")]
+    WrongMint,
 }
 #[account]
 pub struct GlobalData {
@@ -542,5 +554,3 @@ pub struct ClaimEvent {
 solana program deploy --skip-fee-check ./program.so --with-compute-unit-price 100 --use-rpc --max-sign-attempts 1000
 solana program deploy --skip-fee-check ./target/deploy/ogf_lottery.so  --with-compute-unit-price 100 --use-rpc --max-sign-attempts 1000 --keypair ~/.config/solana/id.json
 */
-
-// RPC URL: https://devnet.helius-rpc.com/?api-key=e7b6dcae-bb88-4740-bc6b-908683b4725d

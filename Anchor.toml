@@ -16,3 +16,7 @@ wallet = "~/.config/solana/id.json"
 
 [scripts]
 test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+
+[[test.validator.account]]
+address = "EQyRaajDZLEEdSrU8Hws29LWjDJczGKB1CV6jrWcZJn9"
+filename = "tests/fixtures/ogf_mint.json"
